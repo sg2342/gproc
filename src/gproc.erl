@@ -530,11 +530,11 @@ lookup_value({T,_,_} = Key) ->
 %% cases.
 %% @end
 %%
-where({T,_,_}=Key) ->
+where({T,S,_}=Key) ->
     if T==n orelse T==a ->
             case ets:lookup(?TAB, {Key,T}) of
                 [{_, P, _Value}] ->
-                    case is_process_alive(P) of
+                    case scoped_is_process_alive(S, P) of
 			true -> P;
 			false ->
 			    undefined
@@ -555,13 +555,13 @@ where({T,_,_}=Key) ->
 %% For non-unique types, the return value can be a list of any length.
 %% @end
 %%
-lookup_pids({T,_,_} = Key) ->
+lookup_pids({T,S,_} = Key) ->
     L = if T==n orelse T==a ->
 		ets:select(?TAB, [{{{Key,T}, '$1', '_'},[],['$1']}]);
 	   true ->
 		ets:select(?TAB, [{{{Key,'_'}, '$1', '_'},[],['$1']}])
 	end,
-    [P || P <- L, is_process_alive(P)].
+    [P || P <- L, scoped_is_process_alive(S, P)].
 	  
 
 %% @spec (Key::key()) -> [{pid(), Value}]
@@ -573,13 +573,13 @@ lookup_pids({T,_,_} = Key) ->
 %% object, the return value can be a list of any length.
 %% @end
 %%
-lookup_values({T,_,_} = Key) ->
+lookup_values({T,S,_} = Key) ->
     L = if T==n orelse T==a ->
 		ets:select(?TAB, [{{{Key,T}, '$1', '$2'},[],[{{'$1','$2'}}]}]);
 	   true ->
 		ets:select(?TAB, [{{{Key,'_'}, '$1', '$2'},[],[{{'$1','$2'}}]}])
 	end,
-    [Pair || {P,_} = Pair <- L, is_process_alive(P)].
+    [Pair || {P,_} = Pair <- L, scoped_is_process_alive(S, P)].
 
 
 
@@ -1261,6 +1261,15 @@ is_unique({_,n}) -> true;
 is_unique({_,a}) -> true;
 is_unique(_) -> false.
 
+scoped_is_process_alive(l, Pid)  ->
+    is_process_alive(Pid);
+scoped_is_process_alive(g, Pid) when is_pid(Pid), node() =:= node(Pid) ->
+    is_process_alive(Pid);
+scoped_is_process_alive(g, Pid) ->
+    case rpc:call(node(Pid), erlang, is_process_alive, [Pid], 1500) of
+        {badrpc, _} -> false;
+        R -> R
+    end.
 
 %% =============== EUNIT tests
 
