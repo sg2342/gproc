@@ -530,15 +530,16 @@ lookup_value({T,_,_} = Key) ->
 %% cases.
 %% @end
 %%
-where({T,S,_}=Key) ->
+where({T,_,_}=Key) ->
     if T==n orelse T==a ->
             case ets:lookup(?TAB, {Key,T}) of
-                [{_, P, _Value}] ->
-                    case scoped_is_process_alive(S, P) of
+                [{_, P, _Value}] when node(P) == node() ->
+                    case is_process_alive(P) of
 			true -> P;
 			false ->
 			    undefined
 		    end;
+                [{_, P, _Value}] -> P;
                 _ ->  % may be [] or [{Key,Waiters}]
                     undefined
             end;
@@ -555,13 +556,13 @@ where({T,S,_}=Key) ->
 %% For non-unique types, the return value can be a list of any length.
 %% @end
 %%
-lookup_pids({T,S,_} = Key) ->
+lookup_pids({T,_,_} = Key) ->
     L = if T==n orelse T==a ->
 		ets:select(?TAB, [{{{Key,T}, '$1', '_'},[],['$1']}]);
 	   true ->
 		ets:select(?TAB, [{{{Key,'_'}, '$1', '_'},[],['$1']}])
 	end,
-    [P || P <- L, scoped_is_process_alive(S, P)].
+        [P || P <- L, (node(P) =/= node()) or is_process_alive(P)].
 	  
 
 %% @spec (Key::key()) -> [{pid(), Value}]
@@ -573,13 +574,13 @@ lookup_pids({T,S,_} = Key) ->
 %% object, the return value can be a list of any length.
 %% @end
 %%
-lookup_values({T,S,_} = Key) ->
+lookup_values({T,_,_} = Key) ->
     L = if T==n orelse T==a ->
 		ets:select(?TAB, [{{{Key,T}, '$1', '$2'},[],[{{'$1','$2'}}]}]);
 	   true ->
 		ets:select(?TAB, [{{{Key,'_'}, '$1', '$2'},[],[{{'$1','$2'}}]}])
 	end,
-    [Pair || {P,_} = Pair <- L, scoped_is_process_alive(S, P)].
+    [Pair || {P,_} = Pair <- L, (node(P) =/= node()) or is_process_alive(P)].
 
 
 
@@ -1260,16 +1261,6 @@ is_unique(a) -> true;
 is_unique({_,n}) -> true;
 is_unique({_,a}) -> true;
 is_unique(_) -> false.
-
-scoped_is_process_alive(l, Pid)  ->
-    is_process_alive(Pid);
-scoped_is_process_alive(g, Pid) when is_pid(Pid), node() =:= node(Pid) ->
-    is_process_alive(Pid);
-scoped_is_process_alive(g, Pid) ->
-    case rpc:call(node(Pid), erlang, is_process_alive, [Pid], 1500) of
-        {badrpc, _} -> false;
-        R -> R
-    end.
 
 %% =============== EUNIT tests
 
