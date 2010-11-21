@@ -305,15 +305,19 @@ request_wait({n,C,_} = Key, Timeout) when C==l; C==g ->
     TRef = case Timeout of
                infinity -> no_timer;
                T when is_integer(T), T > 0 ->
-                   erlang:start_timer(T, self(), timeout);
+                   erlang:start_timer(T, self(), gproc_timeout);
                _ ->
                    erlang:error(badarg, [Key, Timeout])
            end,
     WRef = call({await,Key,self()}, C),
     receive
         {gproc, WRef, registered, {_K, Pid, V}} ->
+	    case Timeout of
+		no_timer -> ignore;
+		TRef -> erlang:cancel_timer(TRef)
+	    end,
             {Pid, V};
-        {timeout, TRef, timeout} ->
+        {timeout, TRef, gproc_timeout} ->
             cancel_wait(Key, WRef),
             erlang:error(timeout, [Key, Timeout])
     end.
@@ -533,8 +537,8 @@ lookup_value({T,_,_} = Key) ->
 where({T,_,_}=Key) ->
     if T==n orelse T==a ->
             case ets:lookup(?TAB, {Key,T}) of
-                [{_, P, _Value}] when node(P) == node() ->
-                    case is_process_alive(P) of
+                [{_, P, _Value}] ->
+                    case my_is_process_alive(P) of
 			true -> P;
 			false ->
 			    undefined
@@ -562,8 +566,19 @@ lookup_pids({T,_,_} = Key) ->
 	   true ->
 		ets:select(?TAB, [{{{Key,'_'}, '$1', '_'},[],['$1']}])
 	end,
-        [P || P <- L, (node(P) =/= node()) or is_process_alive(P)].
-	  
+    [P || P <- L, my_is_process_alive(P)].
+
+
+%% @spec (pid()) -> boolean()
+%%
+my_is_process_alive(P) when node(P) =:= node() ->
+    is_process_alive(P);
+my_is_process_alive(_) ->
+    %% remote pid - assume true (too costly to find out)
+    true.
+
+
+
 
 %% @spec (Key::key()) -> [{pid(), Value}]
 %%
@@ -580,7 +595,7 @@ lookup_values({T,_,_} = Key) ->
 	   true ->
 		ets:select(?TAB, [{{{Key,'_'}, '$1', '$2'},[],[{{'$1','$2'}}]}])
 	end,
-    [Pair || {P,_} = Pair <- L, (node(P) =/= node()) or is_process_alive(P)].
+    [Pair || {P,_} = Pair <- L, my_is_process_alive(P)].
 
 
 
